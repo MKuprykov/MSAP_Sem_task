@@ -1,0 +1,653 @@
+<!DOCTYPE html>
+<html lang="sk">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AR Gesture Brick Breaker - Fireworks Update</title>
+    <style>
+        body {
+            margin: 0;
+            overflow: hidden;
+            background-color: #050505;
+            font-family: 'Segoe UI', Tahoma, sans-serif;
+            color: white;
+        }
+
+        #webcam-video {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100vw;
+            height: 100vh;
+            object-fit: cover;
+            z-index: 0;
+            opacity: 1.0;
+            transform: scaleX(-1);
+        }
+
+        #overlay-canvas {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100vw;
+            height: 100vh;
+            z-index: 1;
+            pointer-events: none;
+            transform: scaleX(-1);
+        }
+
+        #canvas-container {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100vw;
+            height: 100vh;
+            z-index: 2;
+            pointer-events: none;
+        }
+
+        #ui-container {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            z-index: 10;
+            background: rgba(15, 15, 20, 0.85);
+            padding: 20px;
+            border-radius: 12px;
+            border: 1px solid rgba(0, 255, 204, 0.4);
+            backdrop-filter: blur(10px);
+            width: 340px;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+            transition: all 0.4s ease;
+        }
+
+        #ui-container.playing-mode {
+            background: rgba(0, 0, 0, 0.3);
+            border-color: transparent;
+            box-shadow: none;
+            width: auto;
+            padding: 10px 20px;
+        }
+
+        #ui-container.playing-mode h2,
+        #ui-container.playing-mode .hint,
+        #ui-container.playing-mode #status {
+            display: none;
+        }
+
+        .mandatory-back-btn {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            background: #ff3366;
+            color: white;
+            text-decoration: none;
+            padding: 10px 15px;
+            border-radius: 8px;
+            font-weight: bold;
+            margin-bottom: 15px;
+            transition: 0.3s;
+            width: 100%;
+            border: none;
+            cursor: pointer;
+            pointer-events: auto;
+        }
+
+        .mandatory-back-btn:hover {
+            background: #ff1a53;
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(255, 51, 102, 0.4);
+        }
+
+        #ui-container.playing-mode .mandatory-back-btn {
+            margin-bottom: 10px;
+            padding: 5px 10px;
+            font-size: 0.9rem;
+        }
+
+        h2 {
+            margin: 0 0 10px 0;
+            font-size: 1.2rem;
+            text-transform: uppercase;
+            letter-spacing: 2px;
+            color: #00ffcc;
+        }
+
+        #top-bar {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 20px;
+        }
+
+        #score-board {
+            font-size: 1.5rem;
+            font-weight: bold;
+            color: #fff;
+            text-shadow: 0 0 10px #00ffcc;
+        }
+
+        #lives-board {
+            font-size: 1.5rem;
+            letter-spacing: 2px;
+            text-shadow: 0 0 10px #ff3366;
+        }
+
+        #status {
+            background: rgba(0, 0, 0, 0.6);
+            padding: 15px;
+            border-radius: 8px;
+            font-size: 1.1rem;
+            color: #ffcc00;
+            font-weight: bold;
+            text-align: center;
+            margin-top: 15px;
+            margin-bottom: 10px;
+            border: 1px solid #333;
+        }
+
+        .hint {
+            font-size: 0.85rem;
+            color: #aaa;
+            line-height: 1.6;
+            background: rgba(0, 0, 0, 0.4);
+            padding: 10px;
+            border-radius: 8px;
+        }
+
+        .highlight-action {
+            color: #00ffcc !important;
+            font-weight: bold;
+        }
+
+        #center-message {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            text-align: center;
+            z-index: 20;
+            display: none;
+            pointer-events: none;
+        }
+
+        #center-message h1 {
+            font-size: 8rem;
+            margin: 0;
+            font-weight: bold;
+            text-transform: uppercase;
+            text-shadow: 0 0 40px currentColor, 0 0 80px currentColor;
+        }
+
+        #center-message p {
+            font-size: 2rem;
+            color: #fff;
+            margin-top: 10px;
+            font-weight: bold;
+            text-shadow: 0 0 10px #000;
+        }
+    </style>
+
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js"
+        crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js" crossorigin="anonymous"></script>
+
+    <script type="importmap">
+        {
+            "imports": {
+                "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+                "cannon-es": "https://unpkg.com/cannon-es@0.20.0/dist/cannon-es.js"
+            }
+        }
+    </script>
+</head>
+
+<body>
+
+    <video id="webcam-video" autoplay playsinline></video>
+    <canvas id="overlay-canvas"></canvas>
+    <div id="canvas-container"></div>
+
+    <div id="center-message">
+        <h1 id="cm-title">3</h1>
+        <p id="cm-subtitle"></p>
+    </div>
+
+    <div id="ui-container">
+        <button class="mandatory-back-btn" onclick="window.history.back()">⬅ Späť na portál</button>
+        <h2>AR Brick Breaker</h2>
+
+        <div id="top-bar">
+            <div id="score-board">Skóre: 0</div>
+            <div id="lives-board">❤️❤️❤️</div>
+        </div>
+
+        <div id="status">Zapínam kameru...</div>
+        <div class="hint">
+            <span class="highlight-action">Pravidlá:</span><br>
+            1. Postav sa cca 1 meter od kamery.<br>
+            2. Ukáž 👍 (Páči sa mi to) pre štart.<br>
+            3. Hraj <span class="highlight-action">jednou rukou</span>, druhú schovaj!
+        </div>
+    </div>
+
+    <script type="module">
+        import * as THREE from 'three';
+        import * as CANNON from 'cannon-es';
+
+        const videoElement = document.getElementById('webcam-video');
+        const canvasElement = document.getElementById('overlay-canvas');
+        const canvasCtx = canvasElement.getContext('2d');
+
+        const uiContainer = document.getElementById('ui-container');
+        const statusEl = document.getElementById('status');
+        const scoreEl = document.getElementById('score-board');
+        const livesEl = document.getElementById('lives-board');
+
+        const centerMsg = document.getElementById('center-message');
+        const cmTitle = document.getElementById('cm-title');
+        const cmSubtitle = document.getElementById('cm-subtitle');
+
+        let gameState = 'CALIBRATING';
+        let score = 0;
+        let lives = 3;
+        let totalBricks = 0;
+        let destroyedBricks = 0;
+
+        function updateLivesUI() { livesEl.innerText = '❤️'.repeat(Math.max(0, lives)); }
+
+        function showMessage(title, color, subtitle = "") {
+            centerMsg.style.display = 'block';
+            centerMsg.style.color = color;
+            cmTitle.innerText = title;
+            cmSubtitle.innerText = subtitle;
+        }
+
+        function hideMessage() { centerMsg.style.display = 'none'; }
+
+        function resizeCanvas() {
+            canvasElement.width = window.innerWidth;
+            canvasElement.height = window.innerHeight;
+        }
+        window.addEventListener('resize', resizeCanvas);
+        resizeCanvas();
+
+        // --- 1. СЦЕНА THREE.JS ---
+        const scene = new THREE.Scene();
+        const aspect = window.innerWidth / window.innerHeight;
+        const viewSize = 50;
+        const camera = new THREE.OrthographicCamera(-viewSize * aspect / 2, viewSize * aspect / 2, viewSize / 2, -viewSize / 2, 0.1, 100);
+        camera.position.set(0, 0, 20);
+
+        const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        document.getElementById('canvas-container').appendChild(renderer.domElement);
+
+        scene.add(new THREE.AmbientLight(0xffffff, 0.8));
+        const dirLight = new THREE.DirectionalLight(0x00ffcc, 3.0);
+        dirLight.position.set(0, 10, 10);
+        scene.add(dirLight);
+
+        // --- 2. ФИЗИКА CANNON.JS ---
+        const world = new CANNON.World({ gravity: new CANNON.Vec3(0, 0, 0) });
+        const bounceMaterial = new CANNON.Material();
+        const contactMaterial = new CANNON.ContactMaterial(bounceMaterial, bounceMaterial, { friction: 0.0, restitution: 1.0 });
+        world.addContactMaterial(contactMaterial);
+
+        const wallShapeX = new CANNON.Box(new CANNON.Vec3(1, 100, 10));
+        const wallShapeY = new CANNON.Box(new CANNON.Vec3(100, 1, 10));
+
+        const leftWall = new CANNON.Body({ mass: 0, shape: wallShapeX, material: bounceMaterial });
+        leftWall.position.set(-viewSize * aspect / 2, 0, 0);
+        world.addBody(leftWall);
+
+        const rightWall = new CANNON.Body({ mass: 0, shape: wallShapeX, material: bounceMaterial });
+        rightWall.position.set(viewSize * aspect / 2, 0, 0);
+        world.addBody(rightWall);
+
+        const topWall = new CANNON.Body({ mass: 0, shape: wallShapeY, material: bounceMaterial });
+        topWall.position.set(0, viewSize / 2, 0);
+        world.addBody(topWall);
+
+        // --- 3. ШАРИК ---
+        const BALL_SPEED = 35;
+        const sphereGeo = new THREE.SphereGeometry(1.2, 16, 16);
+        const sphereMat = new THREE.MeshPhysicalMaterial({ color: 0xffffff, emissive: 0x444444, metalness: 0.5, roughness: 0.1 });
+        const sphereMesh = new THREE.Mesh(sphereGeo, sphereMat);
+        scene.add(sphereMesh);
+
+        const sphereBody = new CANNON.Body({ mass: 1, shape: new CANNON.Sphere(1.2), material: bounceMaterial });
+        world.addBody(sphereBody);
+
+        function resetBall() {
+            sphereBody.position.set(0, -10, 0);
+            sphereBody.velocity.set(0, 0, 0);
+        }
+        resetBall();
+
+        function launchBall() {
+            const sign = Math.random() > 0.5 ? 1 : -1;
+            sphereBody.velocity.set(sign * 15, BALL_SPEED, 0);
+        }
+
+        // --- 4. ПЛАТФОРМА (МЕЧ/РАКЕТКА) ---
+        const paddleWidth = 18; const paddleHeight = 2.5;
+        const padGeo = new THREE.BoxGeometry(paddleWidth, paddleHeight, 2);
+        const padMat = new THREE.MeshPhysicalMaterial({ color: 0x00ffcc, emissive: 0x006655, metalness: 0.8, roughness: 0.2 });
+        const padMesh = new THREE.Mesh(padGeo, padMat);
+        scene.add(padMesh);
+
+        const padShape = new CANNON.Box(new CANNON.Vec3(paddleWidth / 2, paddleHeight / 2, 1));
+        const padBody = new CANNON.Body({ mass: 0, type: CANNON.Body.KINEMATIC, shape: padShape, material: bounceMaterial });
+        padBody.position.set(0, -100, 0);
+        world.addBody(padBody);
+
+        let targetPadPos = new THREE.Vector3(0, -100, 0);
+        let targetPadAngle = 0;
+        let currentPadAngle = 0;
+        let isPadVisible = false;
+
+        // --- 5. БЛОКИ И ЧАСТИЦЫ ---
+        const bricks = [];
+        const cols = 7, rows = 3, brickWidth = 5, brickHeight = 2.5, startY = 18;
+        const startX = - ((cols - 1) * (brickWidth + 1)) / 2;
+        const colors = [0xff3366, 0x9900ff, 0x00ffcc];
+        totalBricks = cols * rows;
+
+        function buildBricks() {
+            bricks.forEach(b => {
+                if (scene.children.includes(b.mesh)) scene.remove(b.mesh);
+                if (world.bodies.includes(b.body)) world.removeBody(b.body);
+            });
+            bricks.length = 0;
+
+            for (let r = 0; r < rows; r++) {
+                for (let c = 0; c < cols; c++) {
+                    const bMesh = new THREE.Mesh(new THREE.BoxGeometry(brickWidth, brickHeight, 2), new THREE.MeshPhysicalMaterial({ color: colors[r], emissive: colors[r], emissiveIntensity: 0.4 }));
+                    bMesh.position.set(startX + c * (brickWidth + 1), startY - r * (brickHeight + 1), 0);
+                    scene.add(bMesh);
+
+                    const bBody = new CANNON.Body({ mass: 0, shape: new CANNON.Box(new CANNON.Vec3(brickWidth / 2, brickHeight / 2, 1)), material: bounceMaterial });
+                    bBody.position.copy(bMesh.position);
+                    bBody.brickId = `${r}-${c}`;
+                    world.addBody(bBody);
+
+                    bricks.push({ mesh: bMesh, body: bBody, isHit: false });
+                }
+            }
+        }
+        buildBricks();
+
+        let particles = [];
+
+        // Обычный взрыв блока
+        function createExplosion(pos, color) {
+            for (let i = 0; i < 25; i++) {
+                const pMesh = new THREE.Mesh(new THREE.BoxGeometry(0.8, 0.8, 0.8), new THREE.MeshBasicMaterial({ color: color }));
+                pMesh.position.copy(pos);
+                particles.push({ mesh: pMesh, vel: new THREE.Vector3((Math.random() - 0.5) * 40, (Math.random() - 0.5) * 40, (Math.random() - 0.5) * 40), life: 1.0 });
+                scene.add(pMesh);
+            }
+        }
+
+        // САЛЮТ (Победа)
+        function spawnFirework() {
+            const fwColors = [0xff00ff, 0x00ffff, 0xffff00, 0xff3366, 0x00ffcc];
+            const color = fwColors[Math.floor(Math.random() * fwColors.length)];
+
+            // Рандомная позиция в верхней части экрана
+            const posX = (Math.random() - 0.5) * (viewSize * aspect) * 0.8;
+            const posY = Math.random() * (viewSize / 2);
+            const pos = new THREE.Vector3(posX, posY, 0);
+
+            for (let i = 0; i < 40; i++) {
+                const pMesh = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.5, 0.5), new THREE.MeshBasicMaterial({ color: color }));
+                pMesh.position.copy(pos);
+                // Сферический разлет
+                const theta = Math.random() * Math.PI * 2;
+                const phi = Math.acos((Math.random() * 2) - 1);
+                const speed = 15 + Math.random() * 25;
+                const vel = new THREE.Vector3(
+                    speed * Math.sin(phi) * Math.cos(theta),
+                    speed * Math.sin(phi) * Math.sin(theta),
+                    speed * Math.cos(phi)
+                );
+                particles.push({ mesh: pMesh, vel: vel, life: 1.5 + Math.random() });
+                scene.add(pMesh);
+            }
+        }
+
+        let bricksToRemove = [];
+        sphereBody.addEventListener("collide", (e) => { if (e.body.brickId) bricksToRemove.push(e.body.brickId); });
+
+        function restartGame() {
+            score = 0; lives = 3; destroyedBricks = 0;
+            scoreEl.innerText = `Skóre: ${score}`;
+            updateLivesUI();
+            buildBricks();
+            resetBall();
+            hideMessage();
+            uiContainer.classList.remove('playing-mode');
+            gameState = 'CALIBRATING';
+        }
+
+        // --- 6. MEDIA PIPE ---
+        const hands = new Hands({ locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}` });
+        hands.setOptions({ maxNumHands: 2, modelComplexity: 1, minDetectionConfidence: 0.8, minTrackingConfidence: 0.8 });
+
+        const getDist = (p1, p2) => Math.sqrt(Math.pow(p1.x - p2.x, 2) + Math.pow(p1.y - p2.y, 2));
+
+        function isThumbsUp(lm) { return lm[4].y < lm[3].y && lm[4].y < lm[5].y && lm[8].y > lm[5].y && lm[20].y > lm[17].y; }
+        function isFist(lm) { return lm[8].y > lm[5].y && lm[12].y > lm[9].y && lm[16].y > lm[13].y && lm[20].y > lm[17].y; }
+
+        hands.onResults((results) => {
+            canvasCtx.save();
+            canvasCtx.clearRect(0, 0, canvasElement.width, canvasElement.height);
+
+            if (results.multiHandLandmarks && results.multiHandLandmarks.length > 0) {
+
+                for (const landmarks of results.multiHandLandmarks) {
+                    drawConnectors(canvasCtx, landmarks, HAND_CONNECTIONS, { color: '#00ffcc', lineWidth: 3 });
+                    drawLandmarks(canvasCtx, landmarks, { color: '#ff3366', lineWidth: 2, radius: 4 });
+                }
+
+                const lm = results.multiHandLandmarks[0];
+                const handSize = getDist(lm[0], lm[9]);
+
+                if (gameState === 'GAME_OVER' || gameState === 'VICTORY') {
+                    if (isFist(lm)) restartGame();
+                    canvasCtx.restore();
+                    return;
+                }
+
+                if (gameState === 'CALIBRATING') {
+                    uiContainer.classList.remove('playing-mode');
+                    if (handSize > 0.15) {
+                        statusEl.innerText = "❌ Odstúp ďalej!"; statusEl.style.color = "#ff3366"; isPadVisible = false;
+                    } else if (handSize < 0.05) {
+                        statusEl.innerText = "❌ Poď bližšie!"; statusEl.style.color = "#ff3366"; isPadVisible = false;
+                    } else {
+                        gameState = 'WAITING_LIKE';
+                    }
+                }
+
+                if (gameState === 'WAITING_LIKE') {
+                    if (handSize > 0.16 || handSize < 0.04) {
+                        gameState = 'CALIBRATING';
+                    } else {
+                        statusEl.innerHTML = "✅ Vzdialenosť OK!<br>Ukáž 👍 (Lajk) pre štart";
+                        statusEl.style.color = "#00ffcc";
+
+                        if (isThumbsUp(lm)) {
+                            gameState = 'COUNTDOWN';
+                            let count = 3;
+                            showMessage(count, '#ff3366');
+
+                            const timer = setInterval(() => {
+                                count--;
+                                if (count > 0) {
+                                    cmTitle.innerText = count;
+                                } else if (count === 0) {
+                                    cmTitle.innerText = "ŠTART!";
+                                } else {
+                                    clearInterval(timer); hideMessage();
+                                    gameState = 'PLAYING';
+                                    uiContainer.classList.add('playing-mode');
+                                    launchBall();
+                                }
+                            }, 1000);
+                        }
+                    }
+                }
+
+                if (gameState === 'COUNTDOWN' || gameState === 'PLAYING') {
+                    if (results.multiHandLandmarks.length > 1) {
+                        isPadVisible = false;
+                        if (gameState === 'PLAYING') {
+                            uiContainer.classList.remove('playing-mode');
+                            statusEl.innerText = "⚠️ SCHOVAJ DRUHÚ RUKU ZA CHRBÁT!";
+                            statusEl.style.color = "#ff3366";
+                        }
+                    } else {
+                        if (gameState === 'PLAYING') uiContainer.classList.add('playing-mode');
+                        isPadVisible = true;
+
+                        const SENSITIVITY = 1.4;
+                        const mapX = (val) => (0.5 - val) * (viewSize * aspect) * SENSITIVITY;
+                        const mapY = (val) => -(val - 0.5) * viewSize * SENSITIVITY;
+
+                        targetPadPos.x = mapX((lm[0].x + lm[9].x) / 2);
+                        targetPadPos.y = mapY((lm[0].y + lm[9].y) / 2);
+
+                        const dx = mapX(lm[9].x) - mapX(lm[0].x);
+                        const dy = mapY(lm[9].y) - mapY(lm[0].y);
+                        targetPadAngle = Math.atan2(dy, dx);
+                    }
+                }
+
+            } else {
+                isPadVisible = false;
+                if (gameState === 'CALIBRATING' || gameState === 'WAITING_LIKE') {
+                    statusEl.innerText = "Ukáž ruku na kameru";
+                    statusEl.style.color = "#fff";
+                }
+            }
+            canvasCtx.restore();
+        });
+
+        const cameraUtils = new Camera(videoElement, { onFrame: async () => { await hands.send({ image: videoElement }); }, width: 640, height: 480 });
+        cameraUtils.start();
+
+        // --- 7. ЦИКЛ АНИМАЦИИ ---
+        const clock = new THREE.Clock();
+
+        function animate() {
+            requestAnimationFrame(animate);
+            const delta = Math.min(clock.getDelta(), 0.1);
+            world.step(1 / 60, delta, 3);
+
+            if (bricksToRemove.length > 0 && gameState === 'PLAYING') {
+                bricks.forEach(brick => {
+                    if (bricksToRemove.includes(brick.body.brickId) && !brick.isHit) {
+                        brick.isHit = true;
+                        score += 100; destroyedBricks++;
+                        scoreEl.innerText = `Skóre: ${score}`;
+                        createExplosion(brick.mesh.position, brick.mesh.material.color.getHex());
+                        scene.remove(brick.mesh); world.removeBody(brick.body);
+
+                        if (destroyedBricks >= totalBricks) {
+                            gameState = 'VICTORY';
+                            resetBall();
+                            uiContainer.classList.remove('playing-mode');
+                            statusEl.innerText = "Dokončené!";
+                            showMessage("VÍŤAZSTVO!", "#00ffcc", "Zovri päsť pre novú hru");
+                        }
+                    }
+                });
+                bricksToRemove = [];
+            }
+
+            // ГЕНЕРАТОР САЛЮТА В СЛУЧАЕ ПОБЕДЫ
+            if (gameState === 'VICTORY') {
+                if (Math.random() < 0.05) { // 5% шанс каждый кадр (около 3 раз в секунду)
+                    spawnFirework();
+                }
+            }
+
+            if (gameState === 'PLAYING') {
+                sphereBody.position.z = 0; sphereBody.velocity.z = 0;
+                const v = sphereBody.velocity;
+                const speed = Math.sqrt(v.x * v.x + v.y * v.y);
+                if (speed > 0) {
+                    if (Math.abs(v.y) < 5) v.y = v.y > 0 ? 5 : -5;
+                    const mult = BALL_SPEED / speed;
+                    sphereBody.velocity.set(v.x * mult, v.y * mult, 0);
+                }
+            }
+
+            if (isPadVisible && (gameState === 'PLAYING' || gameState === 'COUNTDOWN')) {
+                padBody.position.x += (targetPadPos.x - padBody.position.x) * 0.6;
+                padBody.position.y += (targetPadPos.y - padBody.position.y) * 0.6;
+
+                let diff = targetPadAngle - currentPadAngle;
+                while (diff < -Math.PI) diff += Math.PI * 2;
+                while (diff > Math.PI) diff -= Math.PI * 2;
+                currentPadAngle += diff * 0.2;
+
+                padBody.quaternion.setFromAxisAngle(new CANNON.Vec3(0, 0, 1), currentPadAngle);
+                padMesh.visible = true;
+            } else {
+                padBody.position.set(0, -100, 0); padMesh.visible = false;
+            }
+
+            sphereMesh.position.copy(sphereBody.position);
+            padMesh.position.copy(padBody.position);
+            padMesh.quaternion.copy(padBody.quaternion);
+
+            // Анимация частиц + ИМИТАЦИЯ ГРАВИТАЦИИ
+            for (let i = particles.length - 1; i >= 0; i--) {
+                let p = particles[i];
+                p.mesh.position.addScaledVector(p.vel, delta);
+
+                // Добавляем гравитацию для реалистичного осыпания искр!
+                p.vel.y -= 40 * delta;
+
+                p.mesh.rotation.x += delta * 10;
+                p.mesh.rotation.y += delta * 10;
+                p.mesh.scale.multiplyScalar(0.92);
+                p.life -= delta;
+                if (p.life <= 0) { scene.remove(p.mesh); particles.splice(i, 1); }
+            }
+
+            if (sphereBody.position.y < -viewSize / 2 - 5 && gameState === 'PLAYING') {
+                lives--; updateLivesUI(); resetBall();
+                uiContainer.classList.remove('playing-mode');
+
+                if (lives <= 0) {
+                    gameState = 'GAME_OVER';
+                    statusEl.innerHTML = "Hra skončila.";
+                    showMessage("KONIEC HRY", "#ff3366", "Zovri päsť pre novú hru");
+                } else {
+                    gameState = 'WAITING_LIKE';
+                    statusEl.innerHTML = "❌ Lopta padla!<br>Ukáž 👍 pre pokračovanie";
+                    statusEl.style.color = "#ff3366";
+                }
+            }
+
+            renderer.render(scene, camera);
+        }
+        animate();
+
+        window.addEventListener('resize', () => {
+            const newAspect = window.innerWidth / window.innerHeight;
+            camera.left = -viewSize * newAspect / 2; camera.right = viewSize * newAspect / 2;
+            camera.updateProjectionMatrix();
+            leftWall.position.x = -viewSize * newAspect / 2; rightWall.position.x = viewSize * newAspect / 2;
+            renderer.setSize(window.innerWidth, window.innerHeight); resizeCanvas();
+        });
+    </script>
+</body>
+
+</html>
